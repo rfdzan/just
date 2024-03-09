@@ -1,13 +1,19 @@
-use std::io::prelude::*;
+use std::collections::HashMap;
+use std::io::{self, prelude::*};
 use std::process::Command;
 fn main() {
+    match commands() {
+        Err(e) => eprintln!("Error on executing command:\n{e}"),
+        Ok(_) => (),
+    }
+}
+fn commands() -> io::Result<()> {
     let mut npm = Command::new("npm");
     let mut npm1 = Command::new("npm");
     let mut npx = Command::new("npx");
     let mut git = Command::new("git");
-    let mut git_init = git.arg("init").spawn().unwrap();
-    git_init.wait().unwrap();
 
+    let git_init = git.arg("init");
     let gts = npx.arg("gts").arg("init").arg("-y");
     let jest = npm.arg("install").arg("--save-dev").arg("jest");
     let babel = npm1
@@ -17,44 +23,46 @@ fn main() {
         .arg("@babel/core")
         .arg("@babel/preset-env")
         .arg("@babel/preset-typescript");
-
-    let mut init_gts = gts.spawn().unwrap();
-    init_gts.wait().unwrap();
-    let mut init_jest = jest.spawn().unwrap();
-    init_jest.wait().unwrap();
-    let mut init_babel = babel.spawn().unwrap();
-    init_babel.wait().unwrap();
-
-    write_files();
+    {
+        //Can i parallelize this section?
+        let mut dir_git = git_init.spawn()?;
+        dir_git.wait()?;
+        let mut init_gts = gts.spawn()?;
+        init_gts.wait()?;
+        let mut init_jest = jest.spawn()?;
+        init_jest.wait()?;
+        let mut init_babel = babel.spawn()?;
+        init_babel.wait()?;
+    }
+    write_file_content();
+    Ok(())
 }
 
 fn show_message(bytes_written: usize, filename: &str) {
     println!("written {bytes_written} bytes to {filename}.");
 }
-fn write_files() {
-    let gitignore_contents = "node_modules/\nbuild/";
-    let write_gitignore = std::fs::File::create(".gitignore")
-        .unwrap()
-        .write(gitignore_contents.as_bytes())
-        .unwrap();
-    show_message(write_gitignore, ".gitignore");
-
-    let babel_contents = "module.exports = {
+fn write_file_content() {
+    let mut filename_and_content = HashMap::new();
+    filename_and_content.insert(".gitignore", "node_modules/\nbuild/");
+    filename_and_content.insert(".gitattributes", "src/* linguist-vendored=false");
+    filename_and_content.insert(
+        "babel.config.js",
+        "module.exports = {
       presets: [
         ['@babel/preset-env', {targets: {node: 'current'}}],
         '@babel/preset-typescript',
       ],
-    };";
-    let write_babel = std::fs::File::create("babel.config.js")
-        .unwrap()
-        .write(babel_contents.as_bytes())
-        .unwrap();
-    show_message(write_babel, "babel.config.js");
-
-    let gitattributes_content = "src/* linguist-vendored=false";
-    let write_gitattributes = std::fs::File::create(".gitattributes")
-        .unwrap()
-        .write(gitattributes_content.as_bytes())
-        .unwrap();
-    show_message(write_gitattributes, ".gitattributes");
+    };",
+    );
+    for (filename, content) in filename_and_content.iter() {
+        match write_files(filename, content) {
+            Err(e) => eprintln!("Error writing to file:\n{e}"),
+            Ok(_) => (),
+        }
+    }
+}
+fn write_files(filename: &str, content: &str) -> io::Result<()> {
+    let written = std::fs::File::create(filename)?.write(content.as_bytes())?;
+    show_message(written, filename);
+    Ok(())
 }
